@@ -4,6 +4,7 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -30,8 +31,14 @@ def mas_regulations_scraper(url: str) -> List[Dict]:
         >>> print(len(items))
         136
     """
-    # Setup Chrome driver
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+    # Setup Chrome driver in headless mode
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=0,0")
+    driver = webdriver.Chrome(
+        service=Service(ChromeDriverManager().install()), options=chrome_options
+    )
     driver.get(url)
     html_content = driver.page_source
     driver.quit()
@@ -123,8 +130,14 @@ def notice_history_scraper(url: str) -> List[Dict]:
             }
         ]
     """
-    # Setup Chrome driver
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+    # Setup Chrome driver in headless mode
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=0,0")
+    driver = webdriver.Chrome(
+        service=Service(ChromeDriverManager().install()), options=chrome_options
+    )
     driver.get(url)
     html_content = driver.page_source
     driver.quit()
@@ -172,3 +185,104 @@ def notice_history_scraper(url: str) -> List[Dict]:
                 amendment_entries.append({"date": date, "documents": documents})
 
     return amendment_entries
+
+
+def extract_current_document_url(url: str) -> str:
+    """
+    Extracts the PDF document URL from a MAS notice page.
+
+    This function navigates to a MAS notice page, locates the "View Notice" button,
+    and extracts the direct URL to the current PDF document. It uses Selenium to
+    render JavaScript-heavy pages and BeautifulSoup to parse the resulting HTML.
+
+    Args:
+        url: The URL of the MAS notice page (e.g., "https://www.mas.gov.sg/regulation/notices/notice-314")
+
+    Returns:
+        The full URL to the current PDF document on the MAS website
+
+    Raises:
+        AttributeError: If the expected HTML structure ("View Notice" button or link) is not found
+        KeyError: If the link element doesn't have an 'href' attribute
+
+    Example:
+        >>> pdf_url = extract_current_document_url("https://www.mas.gov.sg/regulation/notices/notice-314")
+        >>> print(pdf_url)
+        "https://www.mas.gov.sg/-/media/MAS/Notices/PDF/Notice-314.pdf"
+    """
+    # Setup Chrome driver in headless mode
+    chrome_options = Options()
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--window-size=0,0")
+    driver = webdriver.Chrome(
+        service=Service(ChromeDriverManager().install()), options=chrome_options
+    )
+    driver.get(url)
+    html_content = driver.page_source
+    driver.quit()
+
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    strong_tag = soup.find(
+        "strong", string="View Notice"
+    )  # Locate the "View Notice" button
+    pdf_link = strong_tag.parent.find(
+        "a", class_="mas-link"
+    )  # Navigate to the parent element and find the actual link with class "mas-link"
+    href = pdf_link[
+        "href"
+    ]  # Extract the href attribute containing the relative path to the PDF
+
+    return f"https://www.mas.gov.sg{href}"
+
+
+def combined_notice_scraper(url: str) -> List[Dict]:
+    """
+    Scrapes the amendment history from a MAS notice page and replaces the most recent
+    entry's documents with the current document URL.
+
+    This function combines the functionality of notice_history_scraper and
+    extract_current_document_url to provide a complete history where the most recent
+    entry always points to the current/latest document via the "View Notice" button.
+
+    Args:
+        url: The URL of the MAS notice page to scrape
+
+    Returns:
+        A list of amendment entries, each containing:
+        - date: The date of the amendment
+        - documents: List of documents with title and url
+
+        The most recent entry (first in list) will have its documents replaced with
+        a single document containing:
+        - title: "Current Notice"
+        - url: The current document URL from the "View Notice" button
+
+    Example:
+        >>> entries = combined_notice_scraper("https://www.mas.gov.sg/regulation/notices/notice-314")
+        >>> print(entries[0])
+        {
+            "date": "01 Jan 2024",
+            "documents": [
+                {
+                    "title": "Current Notice",
+                    "url": "https://www.mas.gov.sg/-/media/MAS/Notices/PDF/Notice-314.pdf"
+                }
+            ]
+        }
+    """
+    # Get the full amendment history
+    history_entries = notice_history_scraper(url)
+
+    # If there are no history entries, return empty list
+    if not history_entries:
+        return []
+
+    # Get the current document URL
+    current_url = extract_current_document_url(url)
+
+    # Replace the most recent entry's documents with the current document
+    history_entries[0]["documents"] = [{"title": "Current Notice", "url": current_url}]
+
+    return history_entries
