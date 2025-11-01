@@ -46,7 +46,7 @@ def standardize_date(date_str: str) -> str:
     return date_str
 
 
-def mas_regulations_scraper(url: str) -> List[Dict]:
+def regulations_scraper(url: str) -> List[Dict]:
     """
     Scrapes regulations and guidance from MAS search results page.
 
@@ -64,7 +64,7 @@ def mas_regulations_scraper(url: str) -> List[Dict]:
         - consultation_fields: Optional consultation information
 
     Example:
-        >>> items = mas_regulations_scraper("https://www.mas.gov.sg/regulation/regulations-and-guidance?topics=Anti-Money%20Laundering&page=1&rows=All")
+        >>> items = regulations_scraper("https://www.mas.gov.sg/regulation/regulations-and-guidance?topics=Anti-Money%20Laundering&page=1&rows=All")
         >>> (len(items))
         136
     """

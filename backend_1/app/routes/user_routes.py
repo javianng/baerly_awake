@@ -1,10 +1,11 @@
 import logging
 from typing import List, Optional
 
-from app.database.connection import Database
-from app.models import User, UserCreate
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from app.database.connection import Database
+from app.models import User, UserCreate
 
 logger = logging.getLogger(__name__)
 

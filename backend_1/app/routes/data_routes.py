@@ -1,15 +1,17 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
-from app.database.connection import Database, PostgresDatabase
-from app.agents.rule_parser import parse_function_code, apply_rule_to_transaction
-from app.models import Transaction, Alert
-import logging
 import json
-from datetime import datetime
+import logging
 import uuid
-import polars as pl
+from datetime import datetime
 from io import BytesIO
+from typing import Any, Dict, List, Optional
+
+import polars as pl
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from pydantic import BaseModel
+
+from app.agents.rule_parser import apply_rule_to_transaction, parse_function_code
+from app.database.connection import Database, PostgresDatabase
+from app.models import Alert, Transaction
 
 logger = logging.getLogger(__name__)
 

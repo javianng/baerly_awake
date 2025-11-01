@@ -1,13 +1,15 @@
-from langgraph.graph import StateGraph, END
-from openai import OpenAI
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field, field_validator
-from typing import Mapping, TypedDict, Dict, Any, Optional
-from app.models.transaction import Transaction
-from dotenv import load_dotenv
 import os
+from typing import Any, Dict, Mapping, Optional, TypedDict
+
+from dotenv import load_dotenv
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
+from langgraph.graph import END, StateGraph
+from openai import OpenAI
+from pydantic import BaseModel, Field, field_validator
 from rich import print
+
+from app.models.transaction import Transaction
 
 load_dotenv()
 MODEL = "openai/gpt-oss-120b"
