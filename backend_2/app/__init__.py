@@ -18,7 +18,7 @@ def create_app() -> FastAPI:
         description="Document & Image Corroboration API",
         version="1.0.0",
         docs_url="/docs",
-        redoc_url="/redoc"
+        redoc_url="/redoc",
     )
 
     # Configure CORS

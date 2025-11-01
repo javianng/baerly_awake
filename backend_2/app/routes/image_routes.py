@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 image_router = APIRouter()
 
+
 class ImageAnalysis(BaseModel):
     id: Optional[str] = None
     filename: str
@@ -25,11 +26,13 @@ class ImageAnalysis(BaseModel):
     findings: List[Dict[str, Any]] = []
     metadata: Dict[str, Any] = {}
 
+
 class ImageUploadResponse(BaseModel):
     image_id: str
     filename: str
     status: str
     message: str
+
 
 @image_router.post("/upload", response_model=ImageUploadResponse)
 async def upload_image(file: UploadFile = File(...)):
@@ -40,10 +43,10 @@ async def upload_image(file: UploadFile = File(...)):
         allowed_types = [".jpg", ".jpeg", ".png", ".bmp", ".tiff"]
         if file_extension not in allowed_types:
             raise HTTPException(
-                status_code=400, 
-                detail=f"File type {file_extension} not allowed. Supported types: {allowed_types}"
+                status_code=400,
+                detail=f"File type {file_extension} not allowed. Supported types: {allowed_types}",
             )
-        
+
         # Read and validate image
         content = await file.read()
         try:
@@ -51,7 +54,7 @@ async def upload_image(file: UploadFile = File(...)):
             width, height = image.size
         except Exception as e:
             raise HTTPException(status_code=400, detail="Invalid image file")
-        
+
         # Create image analysis record
         db = Database.get_database()
         image_analysis = {
@@ -60,30 +63,27 @@ async def upload_image(file: UploadFile = File(...)):
             "upload_timestamp": datetime.utcnow(),
             "analysis_status": "processing",
             "file_size": len(content),
-            "metadata": {
-                "width": width,
-                "height": height,
-                "format": image.format
-            }
+            "metadata": {"width": width, "height": height, "format": image.format},
         }
-        
+
         result = await db.image_analysis.insert_one(image_analysis)
         image_id = str(result.inserted_id)
-        
+
         # TODO: Implement actual image processing
         # For now, simulate processing
         await asyncio.sleep(0.1)  # Simulate processing time
-        
+
         return ImageUploadResponse(
             image_id=image_id,
             filename=file.filename,
             status="uploaded",
-            message="Image uploaded successfully and queued for analysis"
+            message="Image uploaded successfully and queued for analysis",
         )
-        
+
     except Exception as e:
         logger.error(f"Error uploading image: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @image_router.get("/analysis/{image_id}", response_model=ImageAnalysis)
 async def get_image_analysis(image_id: str):
@@ -104,6 +104,7 @@ async def get_image_analysis(image_id: str):
         logger.error(f"Error fetching image analysis {image_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
 @image_router.get("/analysis", response_model=List[ImageAnalysis])
 async def get_all_image_analyses():
     """Get all image analyses"""
@@ -111,17 +112,18 @@ async def get_all_image_analyses():
         db = Database.get_database()
         analyses_cursor = db.image_analysis.find()
         analyses = []
-        
+
         async for analysis in analyses_cursor:
             analysis["id"] = str(analysis["_id"])
             del analysis["_id"]
             analyses.append(ImageAnalysis(**analysis))
-        
+
         return analyses
-        
+
     except Exception as e:
         logger.error(f"Error fetching image analyses: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @image_router.post("/verify/{image_id}")
 async def verify_image_authenticity(image_id: str):
@@ -143,14 +145,14 @@ async def verify_image_authenticity(image_id: str):
             "metadata_analysis": {
                 "exif_data_present": True,
                 "camera_model": "Canon EOS R5",
-                "timestamp_consistent": True
+                "timestamp_consistent": True,
             },
             "pixel_analysis": {
                 "compression_artifacts": "Normal",
                 "noise_patterns": "Consistent",
-                "edge_analysis": "Natural"
+                "edge_analysis": "Natural",
             },
-            "verification_timestamp": datetime.utcnow()
+            "verification_timestamp": datetime.utcnow(),
         }
 
         # Update image with verification results
@@ -161,11 +163,13 @@ async def verify_image_authenticity(image_id: str):
                     "analysis_status": "completed",
                     "authenticity_score": verification_results["authenticity_score"],
                     "tampering_detected": verification_results["tampering_detected"],
-                    "ai_generated_probability": verification_results["ai_generated_probability"],
+                    "ai_generated_probability": verification_results[
+                        "ai_generated_probability"
+                    ],
                     "findings": verification_results,
-                    "analysis_completed_at": datetime.utcnow()
+                    "analysis_completed_at": datetime.utcnow(),
                 }
-            }
+            },
         )
 
         return verification_results
@@ -173,6 +177,7 @@ async def verify_image_authenticity(image_id: str):
     except Exception as e:
         logger.error(f"Error verifying image {image_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @image_router.post("/reverse-search/{image_id}")
 async def reverse_image_search(image_id: str):
@@ -192,7 +197,7 @@ async def reverse_image_search(image_id: str):
             "similar_images": [],
             "sources_checked": ["Google Images", "TinEye", "Bing Images"],
             "search_timestamp": datetime.utcnow(),
-            "confidence": 0.95
+            "confidence": 0.95,
         }
 
         return search_results

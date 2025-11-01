@@ -1,25 +1,14 @@
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
-from typing import List, Optional
-from app.database.connection import Database
 import logging
+from typing import List, Optional
+
+from app.database.connection import Database
+from app.models import User, UserCreate
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 user_router = APIRouter()
-
-
-class User(BaseModel):
-    id: Optional[str] = None
-    username: str
-    email: str
-    role: str = "user"
-
-
-class UserCreate(BaseModel):
-    username: str
-    email: str
-    role: str = "user"
 
 
 @user_router.get("/", response_model=List[User])

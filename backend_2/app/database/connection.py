@@ -15,6 +15,7 @@ class InMemoryCollection:
 
     async def find(self, query: Dict[str, Any] = None):
         """Find documents matching query"""
+
         class AsyncCursor:
             def __init__(self, data):
                 self.data = list(data.values())
@@ -111,6 +112,7 @@ class InMemoryDatabase:
 
 class Database:
     """Database singleton for in-memory storage"""
+
     database: InMemoryDatabase = None
 
     @classmethod

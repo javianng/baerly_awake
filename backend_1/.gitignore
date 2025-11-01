@@ -20,6 +20,7 @@ build/
 *.egg-info/
 eggs/
 .eggs/
+uv.lock
 *.egg
 MANIFEST
 
