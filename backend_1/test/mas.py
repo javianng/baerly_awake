@@ -243,32 +243,76 @@ def regulation_history_scraper(url: str, category: str) -> List[Dict]:
                 ]
                 item["documents"] = filtered_docs
 
-    def _extract_current_document_url(soup: BeautifulSoup) -> str:
-        """Extract the current document URL from 'View Notice' or 'View Document' button."""
-        strong_tag = soup.find("strong", string="View Notice") or soup.find(
-            "strong", string="View Document"
+    def _convert_mmyyyy_to_standard_date(date_str: str) -> str:
+        """
+        Convert MM/YYYY format to standardized 'DD MMM YYYY' format.
+
+        Args:
+            date_str: Date string in MM/YYYY format (e.g., "02/2015")
+
+        Returns:
+            Standardized date string in 'DD MMM YYYY' format (e.g., "01 Feb 2015")
+            Uses the 1st day of the month as default.
+            Returns original string if parsing fails.
+
+        Example:
+            >>> _convert_mmyyyy_to_standard_date("02/2015")
+            "01 Feb 2015"
+        """
+        try:
+            # Parse MM/YYYY format
+            parsed_date = datetime.strptime(date_str.strip(), "%m/%Y")
+            # Return in standardized format with day=01
+            return parsed_date.strftime("%d %b %Y")
+        except ValueError:
+            # If parsing fails, return original
+            return date_str
+
+    def _extract_current_document_url(soup: BeautifulSoup) -> dict:
+        """
+        Extract the current document URL and metadata from view button.
+
+        Returns:
+            dict: {"url": str, "button_text": str, "document_title": str}
+                  or None if not found
+        """
+        strong_tag = (
+            soup.find("strong", string="View Notice")
+            or soup.find("strong", string="View Document")
+            or soup.find("strong", string="View Circular")
         )
 
         if strong_tag:
+            button_text = strong_tag.get_text(strip=True)
             pdf_link = strong_tag.parent.find("a", class_="mas-link")
             if pdf_link and pdf_link.get("href"):
                 href = pdf_link["href"]
-                return f"https://www.mas.gov.sg{href}"
+                url = f"https://www.mas.gov.sg{href}"
+
+                # Extract document title from the link
+                title_span = pdf_link.find("span", class_="mas-link__text")
+                document_title = title_span.get_text(strip=True) if title_span else ""
+
+                return {
+                    "url": url,
+                    "button_text": button_text,
+                    "document_title": document_title,
+                }
 
         return None
 
-    def _handle_notices(amendment_entries: List[Dict], current_url: str) -> List[Dict]:
+    def _handle_notices(amendment_entries: List[Dict], current_doc: dict) -> List[Dict]:
         """Handle Notices category: replace first entry with latest notice."""
         amendment_entries[0]["documents"] = [
             {
-                "title": "Latest Notice",
-                "url": current_url,
+                "title": current_doc.get("document_title", "Latest Notice"),
+                "url": current_doc["url"],
             }
         ]
         return amendment_entries
 
     def _handle_guidelines(
-        amendment_entries: List[Dict], current_url: str
+        amendment_entries: List[Dict], current_doc: dict
     ) -> List[Dict]:
         """Handle Guidelines category: create latest entry and preserve previous."""
         # Extract information from the first entry's first document
@@ -285,8 +329,8 @@ def regulation_history_scraper(url: str, category: str) -> List[Dict]:
         # Update the first entry with the latest guideline
         amendment_entries[0]["documents"] = [
             {
-                "title": "Latest Guideline",
-                "url": current_url,
+                "title": current_doc.get("document_title", "Latest Guideline"),
+                "url": current_doc["url"],
             }
         ]
 
@@ -306,12 +350,56 @@ def regulation_history_scraper(url: str, category: str) -> List[Dict]:
 
         return amendment_entries
 
-    def _handle_default(amendment_entries: List[Dict], current_url: str) -> List[Dict]:
+    def _handle_default(amendment_entries: List[Dict], current_doc: dict) -> List[Dict]:
         """Handle default category: replace first entry with current document."""
         amendment_entries[0]["documents"] = [
-            {"title": "Current Document", "url": current_url}
+            {"title": "Current Document", "url": current_doc["url"]}
         ]
         return amendment_entries
+
+    def _handle_circulars(
+        amendment_entries: List[Dict], current_doc: dict
+    ) -> List[Dict]:
+        """
+        Handle Circulars category: create a single entry with current circular.
+
+        Circulars have NO amendment history, only the current document.
+        Extracts date in MM/YYYY format from the document title and converts it.
+
+        Args:
+            amendment_entries: Not used for Circulars (should be empty or ignored)
+            current_doc: Dictionary containing url, button_text, and document_title
+
+        Returns:
+            List with a single entry containing the current circular
+        """
+        # Extract date from document title (format: MM/YYYY like "02/2015")
+        document_title = current_doc.get("document_title", "")
+
+        # Search for MM/YYYY pattern in the title
+        date_match = re.search(r"\b(\d{2})/(\d{4})\b", document_title)
+
+        if date_match:
+            mm_yyyy = date_match.group(0)  # e.g., "02/2015"
+            standardized_date = _convert_mmyyyy_to_standard_date(mm_yyyy)
+        else:
+            # Fallback: try to extract from amendment_entries if available
+            standardized_date = (
+                amendment_entries[0]["date"] if amendment_entries else "Unknown Date"
+            )
+
+        # Create single entry with current circular
+        return [
+            {
+                "date": standardized_date,
+                "documents": [
+                    {
+                        "title": document_title or "Latest Circular",
+                        "url": current_doc["url"],
+                    }
+                ],
+            }
+        ]
 
     # Main execution flow
     base_url = "https://www.mas.gov.sg"
@@ -322,26 +410,35 @@ def regulation_history_scraper(url: str, category: str) -> List[Dict]:
     # Step 2: Parse HTML
     soup = BeautifulSoup(html_content, "html.parser")
 
-    # Step 3: Extract amendment history
+    # Step 3: Extract current document info (needed for all categories)
+    current_doc = _extract_current_document_url(soup)
+
+    # Step 4: Extract amendment history
     amendment_entries = _extract_amendment_history(soup, base_url)
 
-    # Early return if no history found
+    # Step 5: Define all category handlers
+    category_handlers = {
+        "Notices": _handle_notices,
+        "Guidelines": _handle_guidelines,
+        "Circulars": _handle_circulars,
+    }
+
+    # Step 6: Special handling for Circulars (no amendment history needed)
+    if category == "Circulars":
+        if current_doc:
+            return _handle_circulars(amendment_entries, current_doc)
+        return []
+
+    # Step 7: Early return if no history found (for other categories)
     if not amendment_entries:
         return []
 
-    # Step 4: Filter unwanted document types
+    # Step 8: Filter unwanted document types
     _filter_document_types(amendment_entries, ["Amendment", "Cancellation"])
 
-    # Step 5: Extract current document URL
-    current_url = _extract_current_document_url(soup)
-
-    # Step 6: Apply category-specific logic
-    if current_url:
-        category_handlers = {
-            "Notices": _handle_notices,
-            "Guidelines": _handle_guidelines,
-        }
+    # Step 9: Apply category-specific logic
+    if current_doc:
         handler = category_handlers.get(category, _handle_default)
-        amendment_entries = handler(amendment_entries, current_url)
+        amendment_entries = handler(amendment_entries, current_doc)
 
     return amendment_entries
