@@ -51,3 +51,6 @@ htmlcov/
 
 # Docker
 docker-compose.override.yml
+
+# Files
+*.pdf
