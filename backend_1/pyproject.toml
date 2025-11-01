@@ -24,4 +24,5 @@ dependencies = [
     "pypdf2>=3.0.1",
     "isort>=7.0.0",
     "black[jupyter]>=25.9.0",
+    "pymupdf>=1.26.5",
 ]

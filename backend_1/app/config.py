@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Any
+from typing import Any, Dict
 
 # Server configuration
 HOST = os.getenv("HOST", "0.0.0.0")
