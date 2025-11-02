@@ -168,15 +168,15 @@ class PostgresDatabase:
             )
             logger.info("PostgreSQL connection pool initialized")
 
-            # Create rules table if it doesn't exist
-            await cls.create_rules_table()
+            # Create all tables if they don't exist
+            await cls.create_tables()
         except Exception as e:
             logger.error(f"Failed to initialize PostgreSQL: {e}")
             raise
 
     @classmethod
-    async def create_rules_table(cls):
-        """Create rules table if it doesn't exist"""
+    async def create_tables(cls):
+        """Create all tables if they don't exist"""
         if cls.pool is None:
             raise RuntimeError("Database pool not initialized")
 
@@ -284,6 +284,64 @@ class PostgresDatabase:
                 """
             )
             logger.info("Alerts table created/verified")
+
+            # Create regulations table
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS regulations (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    url TEXT NOT NULL,
+                    category TEXT,
+                    date TEXT,
+                    summary TEXT,
+                    topics TEXT[],
+                    latest_pdf_url TEXT,
+                    latest_pdf_date TEXT,
+                    last_checked_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            logger.info("Regulations table created/verified")
+
+            # Create regulation_history table
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS regulation_history (
+                    id TEXT PRIMARY KEY,
+                    regulation_id TEXT NOT NULL,
+                    pdf_url TEXT NOT NULL,
+                    pdf_date TEXT,
+                    document_title TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (regulation_id) REFERENCES regulations(id) ON DELETE CASCADE
+                )
+                """
+            )
+            logger.info("Regulation history table created/verified")
+
+            # Create regulation_changes table
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS regulation_changes (
+                    id TEXT PRIMARY KEY,
+                    regulation_id TEXT NOT NULL,
+                    old_pdf_url TEXT,
+                    new_pdf_url TEXT,
+                    old_pdf_date TEXT,
+                    new_pdf_date TEXT,
+                    comparison_report TEXT,
+                    key_changes TEXT,
+                    impact_analysis TEXT,
+                    alert_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (regulation_id) REFERENCES regulations(id) ON DELETE CASCADE
+                )
+                """
+            )
+            logger.info("Regulation changes table created/verified")
 
     @classmethod
     async def close(cls):
@@ -620,3 +678,271 @@ class PostgresDatabase:
                 "active_alerts": active_alerts or 0,
                 "resolved_alerts": resolved_alerts or 0,
             }
+
+    # Regulation methods
+    @classmethod
+    async def insert_regulation(cls, regulation_data: Dict[str, Any]) -> str:
+        """Insert a new regulation into the database"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            columns = list(regulation_data.keys())
+            placeholders = [f"${i + 1}" for i in range(len(columns))]
+            values = [regulation_data[col] for col in columns]
+
+            query = f"""
+                INSERT INTO regulations ({", ".join(columns)})
+                VALUES ({", ".join(placeholders)})
+                ON CONFLICT (id) DO UPDATE SET
+                    {", ".join([f"{col} = EXCLUDED.{col}" for col in columns if col != "id"])},
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING id
+            """
+
+            row = await conn.fetchrow(query, *values)
+            logger.info(f"Regulation inserted/updated: {row['id']}")
+            return row["id"]
+
+    @classmethod
+    async def get_regulation(cls, regulation_id: str) -> Optional[Dict[str, Any]]:
+        """Get a regulation by ID"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM regulations WHERE id = $1",
+                regulation_id,
+            )
+            if row:
+                return dict(row)
+            return None
+
+    @classmethod
+    async def get_regulation_by_title_and_category(
+        cls, title: str, category: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a regulation by title and category"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM regulations WHERE title = $1 AND category = $2",
+                title,
+                category,
+            )
+            if row:
+                return dict(row)
+            return None
+
+    @classmethod
+    async def get_all_regulations(
+        cls,
+        category: Optional[str] = None,
+        limit: int = 1000,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Get all regulations with optional category filter and pagination"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            if category:
+                rows = await conn.fetch(
+                    """
+                    SELECT * FROM regulations
+                    WHERE category = $1
+                    ORDER BY date DESC, created_at DESC
+                    LIMIT $2 OFFSET $3
+                    """,
+                    category,
+                    limit,
+                    offset,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT * FROM regulations
+                    ORDER BY date DESC, created_at DESC
+                    LIMIT $1 OFFSET $2
+                    """,
+                    limit,
+                    offset,
+                )
+            return [dict(row) for row in rows]
+
+    @classmethod
+    async def update_regulation(
+        cls, regulation_id: str, update_data: Dict[str, Any]
+    ) -> bool:
+        """Update a regulation"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        if not update_data:
+            return False
+
+        updates = []
+        params = []
+        param_count = 1
+
+        for key, value in update_data.items():
+            updates.append(f"{key} = ${param_count}")
+            params.append(value)
+            param_count += 1
+
+        updates.append("updated_at = CURRENT_TIMESTAMP")
+        params.append(regulation_id)
+
+        query = f"""
+            UPDATE regulations
+            SET {", ".join(updates)}
+            WHERE id = ${param_count}
+        """
+
+        async with cls.pool.acquire() as conn:
+            result = await conn.execute(query, *params)
+            return result == "UPDATE 1"
+
+    @classmethod
+    async def delete_regulation(cls, regulation_id: str) -> bool:
+        """Delete a regulation by ID"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM regulations WHERE id = $1",
+                regulation_id,
+            )
+            return result == "DELETE 1"
+
+    # Regulation History methods
+    @classmethod
+    async def insert_regulation_history(
+        cls, history_data: Dict[str, Any]
+    ) -> str:
+        """Insert a new regulation history entry"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            columns = list(history_data.keys())
+            placeholders = [f"${i + 1}" for i in range(len(columns))]
+            values = [history_data[col] for col in columns]
+
+            query = f"""
+                INSERT INTO regulation_history ({", ".join(columns)})
+                VALUES ({", ".join(placeholders)})
+                RETURNING id
+            """
+
+            row = await conn.fetchrow(query, *values)
+            logger.info(f"Regulation history inserted: {row['id']}")
+            return row["id"]
+
+    @classmethod
+    async def get_regulation_history(
+        cls, regulation_id: str
+    ) -> List[Dict[str, Any]]:
+        """Get all history entries for a regulation"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT * FROM regulation_history
+                WHERE regulation_id = $1
+                ORDER BY pdf_date DESC, created_at DESC
+                """,
+                regulation_id,
+            )
+            return [dict(row) for row in rows]
+
+    @classmethod
+    async def get_regulation_history_by_date(
+        cls, regulation_id: str, pdf_date: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get a specific history entry by regulation_id and pdf_date"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT * FROM regulation_history
+                WHERE regulation_id = $1 AND pdf_date = $2
+                LIMIT 1
+                """,
+                regulation_id,
+                pdf_date,
+            )
+            if row:
+                return dict(row)
+            return None
+
+    # Regulation Changes methods
+    @classmethod
+    async def insert_regulation_change(
+        cls, change_data: Dict[str, Any]
+    ) -> str:
+        """Insert a new regulation change entry"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            columns = list(change_data.keys())
+            placeholders = [f"${i + 1}" for i in range(len(columns))]
+            values = [change_data[col] for col in columns]
+
+            query = f"""
+                INSERT INTO regulation_changes ({", ".join(columns)})
+                VALUES ({", ".join(placeholders)})
+                RETURNING id
+            """
+
+            row = await conn.fetchrow(query, *values)
+            logger.info(f"Regulation change inserted: {row['id']}")
+            return row["id"]
+
+    @classmethod
+    async def get_regulation_changes(
+        cls, regulation_id: str
+    ) -> List[Dict[str, Any]]:
+        """Get all change entries for a regulation"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT * FROM regulation_changes
+                WHERE regulation_id = $1
+                ORDER BY created_at DESC
+                """,
+                regulation_id,
+            )
+            return [dict(row) for row in rows]
+
+    @classmethod
+    async def get_all_regulation_changes(
+        cls, limit: int = 100, offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """Get all regulation changes with pagination"""
+        if cls.pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with cls.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT * FROM regulation_changes
+                ORDER BY created_at DESC
+                LIMIT $1 OFFSET $2
+                """,
+                limit,
+                offset,
+            )
+            return [dict(row) for row in rows]
